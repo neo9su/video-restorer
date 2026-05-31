@@ -1,0 +1,35 @@
+# ============================================================
+# Video-Restorer Python 依赖
+# ============================================================
+
+# ---- 基础 ----
+pyyaml>=6.0
+tqdm>=4.65
+numpy>=1.24
+opencv-python>=4.8
+opencv-python-headless<4.9
+pillow>=10.0
+scipy>=1.10
+
+# ---- 视频处理 ----
+moviepy>=1.0.3
+av>=10.0
+
+# ---- 深度学习框架 (CUDA版由setup.sh安装) ----
+# torch
+# torchvision
+
+# ---- 超分辨率 ----
+realesrgan>=0.3.0
+basicsr>=1.4.2
+
+# ---- 画质评估 ----
+scikit-image>=0.21
+lpips>=0.1.4
+
+# ---- 图片修复 (LaMa) ----
+# 注: LaMa 在 tools/ 目录下单独管理
+
+# ---- 图像处理 ----
+imageio>=2.31
+imageio-ffmpeg>=0.4.9
