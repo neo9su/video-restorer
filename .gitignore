@@ -1,0 +1,9 @@
+# Test files
+input/test_video.mp4
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model files (large, download separately)
+models/realesrgan/*.pth
