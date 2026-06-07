@@ -652,7 +652,7 @@ function taskCardHTML(t, expanded) {
     <div class="task-detail">
       <div style="margin-bottom:12px">${compareHTML}</div>
       <div class="task-actions">
-        ${t.status === 'completed' ? `<button class="action-btn primary" onclick="downloadResult('${t.id}')">⬇ 下载</button>` : ''}
+
         ${t.status === 'error' ? `<button class="action-btn primary" onclick="retryTask('${t.id}')">🔄 重试</button>` : ''}
         ${t.status === 'processing' ? `<button class="action-btn danger" onclick="cancelTask('${t.id}')">⏹ 取消</button>` : ''}
         <button class="action-btn" onclick="copyId('${t.id}')" data-tip="复制任务ID">📋 ID</button>

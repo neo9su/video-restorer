@@ -335,6 +335,18 @@ def download(tid):
     return send_file(path, as_attachment=True,
                      download_name=f"restored_{Path(t['filename']).stem}.mp4")
 
+# Video streaming
+@app.route('/api/preview/<tid>/video')
+def preview_video(tid):
+    t = get_task(tid)
+    if not t:
+        return jsonify(error='Not found'), 404
+    path = t.get('result_path', '')
+    if not path or not os.path.isfile(path):
+        return jsonify(error='Result not available'), 404
+    return send_file(path, mimetype='video/mp4')
+
+
 # Preview
 @app.route('/api/preview/<tid>/<which>')
 def preview(tid, which):
