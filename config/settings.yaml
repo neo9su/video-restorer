@@ -1,3 +1,8 @@
+body_enhancement:
+  enabled: true
+  out_fmt: jpg
+  position: after_upscale
+  strength: 1.0
 enhancement:
   denoise_strength: 1
   enabled: false

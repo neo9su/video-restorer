@@ -113,11 +113,17 @@ def _load_model(model_name, model_path, half, gpu_id=0):
         return up, netscale
 
     elif arch == "rrdb_old":
-        # 旧格式：手动转换 key 后加载
+        # 旧格式：先用预转换文件，没有则运行中转换
+        converted_path = os.path.splitext(model_path)[0] + '-basicsr.pth'
         net = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
                       num_block=num_block, num_grow_ch=32, scale=netscale)
-        raw_ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
-        new_ckpt = _convert_rrdb_old_to_basicsr(raw_ckpt)
+        if os.path.isfile(converted_path):
+            raw_ckpt = torch.load(converted_path, map_location='cpu', weights_only=False)
+            new_ckpt = raw_ckpt.get('params', raw_ckpt)
+            logger.info(f"Using pre-converted model: {converted_path}")
+        else:
+            raw_ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+            new_ckpt = _convert_rrdb_old_to_basicsr(raw_ckpt)
         missing, unexpected = net.load_state_dict(new_ckpt, strict=False)
         if missing:
             logger.warning(f"Missing keys: {len(missing)} (e.g. {missing[:2]})")

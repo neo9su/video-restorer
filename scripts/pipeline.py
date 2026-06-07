@@ -64,7 +64,7 @@ def face_enhance_frames(input_dir: Path, output_dir: Path, config: dict) -> Path
         logger.info("  [Step 3] Face enhancement disabled")
         return input_dir
 
-    from face_enhance import run_face_enhancement
+    from face_enhance import run_pipeline as run_face_enhancement
     output_dir = ensure_dir(output_dir)
     existing = _count_frames(output_dir)
     total_in = _count_frames(input_dir)
@@ -72,8 +72,26 @@ def face_enhance_frames(input_dir: Path, output_dir: Path, config: dict) -> Path
         logger.info(f"  [Step 3] Skip: {existing}/{total_in} already done")
         return output_dir
 
-    result = run_face_enhancement(str(input_dir), str(output_dir), config)
+    result = run_face_enhancement(str(input_dir), config, str(output_dir))
     return Path(result) if result else output_dir
+
+
+def body_enhance_frames(input_dir, output_dir, config):
+    """Step 3.5 / 4.5: 全身细节增强"""
+    from body_enhance import run_pipeline as body_pipeline
+    be = config.get("body_enhancement", {})
+    if not be.get("enabled", False):
+        logger.info("  [BodyEnhance] Disabled")
+        return input_dir
+    output_dir = ensure_dir(output_dir)
+    existing = sum(len(list(output_dir.glob(f"*.{e}"))) for e in ("jpg", "jpeg", "png"))
+    total_in = sum(len(list(input_dir.glob(f"*.{e}"))) for e in ("jpg", "jpeg", "png"))
+    if existing >= total_in:
+        logger.info(f"  [BodyEnhance] Skip: {existing}/{total_in} already done")
+        return output_dir
+    result = body_pipeline(str(input_dir), config, str(output_dir))
+    return Path(result) if result else output_dir
+
 
 
 def upscale_frames_step(input_dir: Path, output_dir: Path, config: dict) -> Path:
@@ -245,12 +263,26 @@ def run_pipeline(input_path: str, output_dir: str, config: dict,
         if not frames_up.exists():
             frames_up = frames_face
 
+    # ── Step 4.5: Body Detail Enhancement ─────────────────
+    frames_body = work_dir / 'frames_body_enhanced'
+    body_pos = config.get('body_enhancement', {}).get('position', 'after_upscale')
+    frame_input = frames_up if body_pos == 'after_upscale' else frames_face
+    body_label = 45 if body_pos == 'after_upscale' else 35
+    if body_label not in completed_steps and body_label not in skip_steps:
+        logger.info(f"[Step {body_label}] Body detail enhancement...")
+        frames_body = body_enhance_frames(frame_input, frames_body, config)
+        mark_step(body_label)
+    else:
+        logger.info(f"[Step {body_label}] Skip")
+        if not frames_body.exists():
+            frames_body = frame_input
+
     # ── Step 5: Assemble ─────────────────────────────────────
     task_id = work_dir.name
     output_video = Path(work_dir).parent / f'{task_id}_result.mp4'
     if 5 not in completed_steps and 5 not in skip_steps:
         logger.info("[Step 5] Assembling video...")
-        assemble_video(frames_up, input_path, str(output_video), config)
+        assemble_video(frames_body, input_path, str(output_video), config)
         mark_step(5)
     else:
         logger.info("[Step 5] Skip")
