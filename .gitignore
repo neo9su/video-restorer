@@ -1,9 +1,44 @@
-# Test files
-input/test_video.mp4
-
-# Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyc.pyc
+*.bak
+*.bak.*
+*.tmp
 
-# Model files (large, download separately)
-models/realesrgan/*.pth
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets & Config
+.env
+.git-credentials
+
+# Model weights
+*.pth
+*.ckpt
+*.pt
+*.engine
+*.onnx
+models/realesrgan/
+models/prosaic/
+models/face/
+
+# Uploads & Results
+webapp/uploads/*
+webapp/results/*
+!webapp/uploads/.gitkeep
+!webapp/results/.gitkeep
+webapp/tasks.json
+webapp/progress.json
+
+# Input/Test
+input/
+
+# Not for version control
+scripts/build_trt_engine.py

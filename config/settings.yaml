@@ -1,72 +1,54 @@
-# ============================================================
-# Video-Restorer 配置文件
-# ============================================================
-
-# ---- 服务器环境 ----
-server:
-  gpu_id: 0                    # GPU 设备编号
-  num_workers: 4               # 数据加载线程数
-  temp_dir: "/tmp/video_restorer_temp"   # 临时文件目录
-
-# ---- 输入/输出 ----
-io:
-  input_dir: "./input"         # 输入视频目录
-  output_dir: "./output"       # 最终输出目录
-  frames_dir: "./frames"       # 拆帧中间目录
-  keep_frames: false           # 是否保留中间帧序列（调试用）
-
-# ---- 预处理 ----
-preprocess:
-  target_fps: 0                # 0=保持原帧率
-  target_format: "mp4"         # 统一转码格式
-  codec: "h264"                # 编码器
-  crf: 18                      # 质量参数 (0-51, 越低越好)
-  pix_fmt: "yuv420p"           # 像素格式
-
-# ---- 拆帧 ----
-extract_frames:
-  format: "png"                # 帧格式 (png / jpg)
-  quality: 95                  # jpg质量 (仅jpg有效)
-
-# ---- 去水印 ----
-watermark_removal:
-  enabled: true
-  method: "lama"               # 修复方法: lama / propainter
-  detect_watermark: false      # 是否自动检测水印区域
-  # 手动指定水印区域 [x, y, w, h] (像素坐标)
-  watermark_bbox: []
-  # 文本水印检测
-  text_removal:
-    enabled: false
-    lang: "chi_sim+eng"        # 识别语言
-
-# ---- 画质增强 ----
 enhancement:
+  denoise_strength: 1
   enabled: false
-  model: "RealESRGAN_x4plus" # realesr-animevideov3 / realesr-general-x4v3
-  tile_size: 0                 # 分块处理大小 (0=自动, 节省显存)
-  denoise_strength: 1          # 去噪强度 (0-1)
-
-# ---- 超分辨率 ----
-super_resolution:
+  model: RealESRGAN_x4plus
+  tile_size: 0
+extract_frames:
+  format: png
+  quality: 95
+face_enhancement:
   enabled: true
-  scale: 2                     # 放大倍数 (2 / 4)
-  model: "RealESRGAN_x4plus"   # RealESRGAN_x4plus / RealESRGAN_x2plus
-  tile_size: 256               # 分块推理 (缓解OOM)
-  tile_pad: 10                 # 分块重叠像素
-
-# ---- 后处理 ----
+  fidelity_weight: 0.7
+  log_interval: 50
+  only_center_face: false
+io:
+  frames_dir: ./frames
+  input_dir: ./input
+  keep_frames: false
+  output_dir: ./output
 postprocess:
-  output_fps: 0                # 0=保持输入帧率
-  output_codec: "h264"         # h264 / h265
-  output_crf: 18
-  output_pix_fmt: "yuv420p"
-  bitrate: ""                  # 留空自动 (如 "20M")
-  # 色彩增强
+  bitrate: ''
   color_enhance:
+    brightness: 1.0
+    contrast: 1.1
     enabled: false
     saturation: 1.2
-    contrast: 1.1
-    brightness: 1.0
-  # 去抖
   deshake: false
+  output_codec: h264
+  output_crf: 18
+  output_fps: 0
+  output_pix_fmt: yuv420p
+preprocess:
+  codec: h264
+  crf: 18
+  pix_fmt: yuv420p
+  target_format: mp4
+  target_fps: 0
+server:
+  gpu_id: 0
+  num_workers: 4
+  temp_dir: /tmp/video_restorer_temp
+super_resolution:
+  enabled: true
+  model: realesr-animevideov3
+  scale: 2
+  tile_pad: 10
+  tile_size: 0
+watermark_removal:
+  detect_watermark: false
+  enabled: true
+  method: lama
+  text_removal:
+    enabled: false
+    lang: chi_sim+eng
+  watermark_bbox: []

@@ -1,4 +1,4 @@
-"""画质增强模块 - 去噪、去模糊、细节增强"""
+"""画质增强模块 - 去噪、去模糊、细节增强 (优化版 FP16)"""
 
 import os, sys
 from pathlib import Path
@@ -7,7 +7,6 @@ from utils import logger, ensure_dir, load_config
 
 
 def _create_model(model_name):
-    """根据模型名称创建网络架构"""
     from basicsr.archs.rrdbnet_arch import RRDBNet
     from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 
@@ -23,7 +22,13 @@ def _create_model(model_name):
         raise ValueError(f"Unknown model: {model_name}")
 
 
-def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3", tile_size=0, denoise_strength=1.0, device="cuda"):
+def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3",
+                   tile_size=0, denoise_strength=1.0, device="cuda",
+                   use_half=True, log_interval=50):
+    """
+    画质增强（去噪/去模糊），增强后缩回原分辨率。
+    优化：FP16 + 整帧推理
+    """
     try:
         from realesrgan import RealESRGANer
         from basicsr.utils.download_util import load_file_from_url
@@ -33,25 +38,27 @@ def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3", til
         return 0
 
     ensure_dir(output_dir)
-    device = torch.device(device if torch.cuda.is_available() else "cpu")
-    logger.info(f"Device: {device}")
+    cuda_ok = torch.cuda.is_available()
+    half = use_half and cuda_ok
+    logger.info(f"Device: cuda | FP16: {half} | tile: {tile_size or 'full-frame'}")
 
     net, netscale = _create_model(model_name)
     logger.info(f"Model: {model_name} (scale={netscale}, tile={tile_size})")
 
-    # 找模型文件
     models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "realesrgan")
     model_path = os.path.join(models_dir, f"{model_name}.pth")
     if not os.path.isfile(model_path):
         logger.info(f"Downloading {model_name}...")
         model_path = load_file_from_url(
-            url=f"https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/{model_name}.pth",
+            url=f"https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/{model_name}.pth",
             model_dir=models_dir, progress=True, file_name=f"{model_name}.pth")
 
     upsampler = RealESRGANer(
         scale=netscale, model_path=model_path, model=net,
         tile=tile_size if tile_size > 0 else 0,
-        tile_pad=10, pre_pad=0, half=False, gpu_id=0 if device.type == "cuda" else -1,
+        tile_pad=10, pre_pad=0,
+        half=half,
+        gpu_id=0 if cuda_ok else -1,
     )
 
     frames = sorted([f for f in os.listdir(input_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))])
@@ -59,7 +66,10 @@ def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3", til
         logger.error(f"No frames in {input_dir}")
         return 0
 
-    logger.info(f"Enhancing {len(frames)} frames...")
+    sample = cv2.imread(os.path.join(input_dir, frames[0]))
+    oh, ow = sample.shape[:2]
+    logger.info(f"Enhancing {len(frames)} frames ({ow}x{oh}) with FP16...")
+
     count = 0
     for i, fname in enumerate(frames):
         out_path = os.path.join(output_dir, fname)
@@ -70,15 +80,25 @@ def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3", til
             img = cv2.imread(os.path.join(input_dir, fname), cv2.IMREAD_COLOR)
             if img is None:
                 continue
-            output, _ = upsampler.enhance(img, outscale=1)
+            # enhance 会放大，outscale=1 缩回原尺寸
+            enhanced, _ = upsampler.enhance(img, outscale=1)
             if denoise_strength < 1.0:
-                output = cv2.addWeighted(img, 1.0 - denoise_strength, output, denoise_strength, 0)
-            cv2.imwrite(out_path, output)
+                enhanced = cv2.addWeighted(img, 1.0 - denoise_strength, enhanced, denoise_strength, 0)
+            cv2.imwrite(out_path, enhanced)
             count += 1
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                import gc, torch as _torch
+                _torch.cuda.empty_cache(); gc.collect()
+                # 降级到 tile=512 重试
+                return enhance_frames(input_dir, output_dir, model_name,
+                                      512, denoise_strength, device, use_half, log_interval)
+            logger.warning(f"Failed {fname}: {e}")
         except Exception as e:
             logger.warning(f"Failed {fname}: {e}")
-        if (i + 1) % 50 == 0 or (i + 1) == len(frames):
-            logger.info(f"  Progress: {i+1}/{len(frames)}")
+
+        if (i + 1) % log_interval == 0 or (i + 1) == len(frames):
+            logger.info(f"  Progress: {i+1}/{len(frames)} ({(i+1)*100//len(frames)}%)")
 
     logger.info(f"Done: {count}/{len(frames)} frames")
     return count
@@ -86,11 +106,19 @@ def enhance_frames(input_dir, output_dir, model_name="realesr-animevideov3", til
 
 def run_pipeline(frame_dir, config, output_dir="frames_enhanced"):
     enh_cfg = config["enhancement"]
-    if not enh_cfg["enabled"]:
+    if not enh_cfg.get("enabled", False):
         logger.info("Enhancement disabled")
         return frame_dir
+
     out_dir = ensure_dir(output_dir)
-    count = enhance_frames(frame_dir, out_dir, model_name=enh_cfg["model"], tile_size=enh_cfg["tile_size"], denoise_strength=enh_cfg["denoise_strength"])
+    count = enhance_frames(
+        frame_dir, out_dir,
+        model_name=enh_cfg.get("model", "realesr-animevideov3"),
+        tile_size=0,             # 整帧模式
+        denoise_strength=enh_cfg.get("denoise_strength", 1.0),
+        use_half=True,           # FP16
+        log_interval=50,
+    )
     return out_dir if count > 0 else None
 
 
@@ -103,5 +131,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config = load_config(args.config)
     result = run_pipeline(args.frames_dir, config, args.output_dir)
-    print(f"\n{[OK] if result else [FAIL]} Done: {result}")
+    print(f"\n{'OK' if result else 'FAIL'} Done: {result}")
     sys.exit(0 if result else 1)

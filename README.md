@@ -1,269 +1,212 @@
-# 🎬 Video-Restorer
+# Video Restorer
 
-> **老片翻新 · 低分辨率提升 · 模糊变高清 · 去水印**
->
-> 专为 **NVIDIA RTX 3090 24GB** GPU 服务器设计的视频修复流水线
+视频修复流水线 — 去水印、降噪、面部增强、超分辨率，支持 GPU 加速。
 
-![Python](https://img.shields.io/badge/Python-3.10-blue)
-![CUDA](https://img.shields.io/badge/CUDA-12.1-green)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+**GPU**: RTX 3090 (24GB) | **驱动**: NVIDIA 535.309.01 + `NVreg_EnableGpuFirmware=0`  
+**Server**: Inspur NF5568M4 (Ubuntu 22.04) | **URL**: `http://10.190.0.222:8000`
 
 ---
 
-## 🚀 快速上手
+## 功能特性
 
-### 1. 环境准备
+### 核心处理管线 (Pipeline)
 
-```bash
-# 克隆项目
-git clone <your-repo> video-restorer
-cd video-restorer
+| Step | 功能 | 工具 | 说明 |
+|------|------|------|------|
+| 1 | 视频抽帧 | ffmpeg | 从视频提取所有帧 |
+| 2 | 视频降噪 | ProPainter | 空域+时域联合去噪 |
+| 3 | 面部增强 | CodeFormer | 面部细节修复 (可开关) |
+| 4 | 超分辨率 | RealESRGAN / AnimeVideo v3 | 支持 2x/4x，FP16 加速 |
+| 5 | 视频合成 | ffmpeg | 帧回视频 + 音轨复用 |
 
-# 一键安装 (Ubuntu 22.04 + CUDA)
-# 会自动安装: 系统依赖 → Miniconda → PyTorch → Real-ESRGAN → VSR → ProPainter
-bash setup.sh
+### 超分模型对比
 
-# 激活环境
-conda activate video-restorer
-```
+| 模型 | 类型 | 适合场景 | 质量 | 速度 |
+|------|------|---------|------|------|
+| RealESRGAN_x4plus | RRDB-23层 | **真人视频** | ⭐⭐⭐⭐⭐ | 快 |
+| realesr-animevideov3 | SRVGGNet-16层 | 动画/卡通 | ⭐⭐⭐ | 最快 |
+| 4x-UltraSharp | 旧格式 ESRGAN | 锐度需求高 | ⭐⭐⭐⭐⭐ | 快 |
+| BSRGAN | 旧格式 ESRGAN | 通用 | ⭐⭐⭐⭐ | 快 |
 
-### 2. 一键运行
+### 新增功能 (v2.0)
 
-```bash
-# 完整流水线: 格式统一 → 去水印 → 画质增强 → 2x超分 → 合成视频
-python scripts/pipeline.py input/old_video.mp4 -o output/restored.mp4
-
-# 仅超分 (跳过水印和增强)
-python scripts/pipeline.py input/video.mp4 -o output/hd.mp4 --no-watermark --no-enhance
-
-# 4x 超分 (适合低分辨率视频)
-python scripts/pipeline.py input/360p_video.mp4 -o output/1440p.mp4 --scale 4
-
-# 快速模式 (显存不足时使用)
-python scripts/pipeline.py input/video.mp4 -o output/result.mp4 --fast
-
-# 动画/老片专用 (使用 anime 模型)
-python scripts/pipeline.py input/cartoon.mp4 -o output/hd_cartoon.mp4 --fast
-```
-
-### 3. 分步执行 (调试/定制)
-
-```bash
-# Step 1: 格式统一 + 拆帧
-python scripts/preprocess.py input/video.mp4 --frames-dir frames
-
-# Step 2: 去水印 (指定水印区域)
-python scripts/remove_watermark.py --frames-dir frames --bbox 100 50 200 80
-
-# Step 3: 画质增强
-python scripts/enhance.py --frames-dir frames_denoised
-
-# Step 4: 超分辨率
-python scripts/upscale.py --frames-dir frames_enhanced --scale 2
-
-# Step 5: 合成视频
-python scripts/postprocess.py --frames-dir frames_upscaled --output final.mp4
-
-# 质量评估
-python scripts/evaluate.py frames_original frames_upscaled --lpips
-```
+- ✅ **批量上传** — 拖放或多文件一次上传
+- ✅ **任务队列** — 优先级调度 (普通/高优)
+- ✅ **断点续传** — Pipeline 内置 checkpoint，中断后可恢复
+- ✅ **实时进度** — SSE 流式推送处理进度和日志
+- ✅ **前后对比** — 滑动对比滑块 (Before/After)
+- ✅ **质量评估** — PSNR/SSIM 自动计算，生成对比图
+- ✅ **预处理** — 黑边裁剪、音频提取、场景切分
+- ✅ **移动端适配** — 响应式布局，手机可用
+- ✅ **GPU 状态监控** — 显存使用/温度实时显示
+- ✅ **一键部署** — systemd 服务 + Docker 支持
 
 ---
 
-## 🧠 技术架构
-
-```
-输入视频 (低分辨率/模糊/带水印)
-    │
-    ▼
-┌─────────────────────┐
-│ Step 1: 预处理       │  FFmpeg 格式统一 + 逐帧拆解
-│  统一格式 + 拆帧      │
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│ Step 2: 去水印       │  LaMa / ProPainter 修复
-│  自动检测 + AI修复    │
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│ Step 3: 画质增强     │  Real-ESRGAN (animevideov3)
-│  去噪 + 去模糊       │
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│ Step 4: 超分辨率     │  Real-ESRGAN (x2/x4)
-│  2x / 4x 放大       │
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│ Step 5: 后处理       │  FFmpeg 合成 + 色彩优化
-│  合成视频 + 色调优化  │
-└─────────┬───────────┘
-          ▼
-输出视频 (高清/无水印)
-```
-
-### 核心模型
-
-| 模块 | 模型 | 适用场景 | 显存需求 |
-|------|------|---------|---------|
-| 去水印 | **LaMa** (big-lama) | 大面积静态水印/字幕 | ~2GB |
-| 去水印 | **ProPainter** | 动态水印/复杂场景 | ~6GB |
-| 画质增强 | **real-esr-animevideov3** | 动漫/老电影去噪去模糊 | ~3GB |
-| 画质增强 | **real-esr-general-x4v3** | 通用视频增强 | ~3GB |
-| 超分辨率 | **RealESRGAN_x4plus** | 2x/4x 通用超分 | ~4GB (tile=256) |
-| 超分辨率 | **RealESRGAN_x2plus** | 2x 高质量超分 | ~4GB |
-| 质量评估 | **LPIPS (AlexNet)** | 感知质量评价 | ~1GB |
-
-> **3090 24GB 足够同时跑多个模型，视频处理时建议 `tile_size=256` 避免 OOM**
-
----
-
-## ⚙️ 配置说明
-
-编辑 `config/settings.yaml`：
-
-```yaml
-# 超分辨率
-super_resolution:
-  enabled: true
-  scale: 2                    # 2 或 4 倍
-  model: "RealESRGAN_x4plus"
-  tile_size: 256              # 分块大小 (OOM时减小)
-  tile_pad: 10
-
-# 去水印
-watermark_removal:
-  enabled: true
-  method: "lama"              # lama 或 propainter
-  watermark_bbox: [100, 50, 200, 80]  # [x, y, w, h]
-```
-
-完整配置参考 `config/settings.yaml`。
-
----
-
-## 📊 质量评估
-
-```bash
-# 对比原始帧和处理后帧
-python scripts/evaluate.py frames_original frames_upscaled --lpips
-```
-
-输出示例:
-```
-=======================================================
-  质量评估报告 (300 帧)
-=======================================================
-  指标         平均值     最小值     最大值
-  ------------------------------------------
-  PSNR (dB)    32.15     28.44     35.67
-  SSIM         0.9641    0.9210    0.9872
-  LPIPS (↓)    0.0872    0.0231    0.1543
-=======================================================
-```
-
----
-
-## 🔧 服务器部署
-
-```bash
-# 1. 上传到服务器
-scp -r video-restorer user@10.190.0.222:~/video-restorer
-
-# 2. SSH 登录服务器
-ssh user@10.190.0.222
-
-# 3. 一键安装
-cd ~/video-restorer
-bash setup.sh
-
-# 4. 开始处理
-conda activate video-restorer
-python scripts/pipeline.py input/old_movie.mp4 -o output/restored.mp4
-```
-
-### 手动 CUDA 检查
-
-```bash
-nvidia-smi                 # 检查驱动 + GPU 状态
-nvcc --version             # 检查 CUDA 版本
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-```
-
----
-
-## 🗂️ 项目结构
+## 项目结构
 
 ```
 video-restorer/
-├── config/
-│   └── settings.yaml       # 配置文件
-├── models/
-│   ├── download_models.sh  # 模型下载脚本
-│   ├── realesrgan/         # Real-ESRGAN 模型
-│   ├── lama/               # LaMa 修复模型
-│   └── propainter/         # ProPainter 模型
+├── webapp/
+│   ├── server.py              # Flask 后端 (v2: 完整 API + 调度器 + SSE)
+│   ├── static/
+│   │   └── index.html         # 全新 Web UI
+│   ├── uploads/               # 上传目录
+│   ├── results/               # 输出目录
+│   └── tasks.json             # 任务状态
 ├── scripts/
-│   ├── pipeline.py         # 🎯 主流水线入口
-│   ├── preprocess.py       # Step 1: 预处理
-│   ├── remove_watermark.py # Step 2: 去水印
-│   ├── enhance.py          # Step 3: 画质增强
-│   ├── upscale.py          # Step 4: 超分辨率
-│   ├── postprocess.py      # Step 5: 后处理
-│   ├── evaluate.py         # 质量评估
-│   └── utils.py            # 工具函数
-├── tools/                  # 第三方工具 (VSR/ProPainter)
-├── setup.sh                # 一键安装脚本
-├── requirements.txt        # Python 依赖
-└── README.md
+│   ├── pipeline.py            # 主流水线 (v2: checkpoint 断点续传)
+│   ├── enhance.py             # 降噪 (ProPainter)
+│   ├── upscale.py             # 超分辨率 (FP16 + async I/O)
+│   ├── face_enhance.py        # CodeFormer 面部增强
+│   ├── _codeformer_worker.py  # CF 推理 worker (OOM 降级)
+│   ├── postprocess.py         # 视频合成 + 音轨
+│   ├── utils.py               # 工具函数
+│   ├── preprocess.py          # 预处理 (裁剪/切分/音频) [NEW]
+│   └── quality.py             # 质量评估 PSNR/SSIM [NEW]
+├── config/
+│   └── settings.yaml          # 全局配置
+├── models/
+│   ├── realesrgan/            # 超分模型权重
+│   │   ├── RealESRGAN_x4plus.pth
+│   │   ├── realesr-animevideov3.pth
+│   │   ├── 4x-UltraSharp.pth
+│   │   └── BSRGAN.pth
+│   ├── prosaic/               # 降噪模型
+│   └── face/                  # 面部增强模型
+├── Dockerfile                 # Docker 部署 [NEW]
+├── .dockerignore              # Docker 忽略 [NEW]
+└── api_docs.md                # API 文档 [NEW]
 ```
 
 ---
 
-## 📝 常见问题
+## 部署
 
-<details>
-<summary><b>CUDA out of memory</b></summary>
+### 快速启动
 
 ```bash
-# 减小 tile_size
-python scripts/pipeline.py input.mp4 -o output.mp4 --fast
-# 或编辑 config: tile_size=128, scale=2
+# 一键启动所有服务
+bash /mnt/disk3/start-all-services.sh start
+
+# 状态检查 + GPU 信息
+bash /mnt/disk3/start-all-services.sh status
 ```
-</details>
 
-<details>
-<summary><b>如何提高处理速度？</b></summary>
+### systemd 服务
 
-- 开启 `--fast` 模式减小分块
-- 只做 2x 超分而非 4x
-- 跳过去水印或增强步骤
-- 使用 `half=True` (FP16 推理，显存减半)
-</details>
+```bash
+sudo cp video-restorer.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable video-restorer
+sudo systemctl start video-restorer
+```
 
-<details>
-<summary><b>如何选择超分模型？</b></summary>
+### Docker
 
-- 动漫/老电影 → `realesr-animevideov3`
-- 真人视频 → `RealESRGAN_x4plus`
-- 2x 超分 → `RealESRGAN_x2plus` (质量更好)
-</details>
+```bash
+docker build -t video-restorer .
+docker run -d --gpus all -p 8000:8000 -v /data/results:/app/results video-restorer
+```
 
 ---
 
-## 📚 参考资源
+## API 端点
 
-- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) - 超分辨率 & 画质增强
-- [BasicSR](https://github.com/xinntao/BasicSR) - 视频修复框架
-- [video-subtitle-remover](https://github.com/YaoFANGUK/video-subtitle-remover) - 视频去字幕/水印
-- [ProPainter](https://github.com/sczhou/ProPainter) - 视频修复 (去水印/划痕)
-- [LaMa](https://github.com/saic-mdal/lama) - 图像修复 (去水印)
-- [LPIPS](https://github.com/richzhang/PerceptualSimilarity) - 感知质量评估
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/` | Web UI |
+| `POST` | `/upload` | 上传视频 (multipart/form-data) |
+| `GET` | `/api/tasks` | 获取所有任务 |
+| `GET` | `/api/tasks/<id>` | 获取单个任务 |
+| `DELETE` | `/api/tasks/<id>` | 删除任务 |
+| `POST` | `/api/tasks/<id>/cancel` | 取消任务 |
+| `POST` | `/api/tasks/<id>/retry` | 重试失败任务 |
+| `GET` | `/download/<id>` | 下载结果 |
+| `GET` | `/api/preview/<id>/<which>` | 预览帧 (input/output) |
+| `GET` | `/api/tasks/<id>/stream` | SSE 进度流 |
+| `GET` | `/api/gpu` | GPU 状态 |
+| `GET`/`POST` | `/api/config` | 配置读取/更新 |
+| `GET` | `/api/stats` | 任务统计 |
+| `GET` | `/health` | 健康检查 |
 
 ---
 
-## 📜 License
+## GPU 环境配置
 
-MIT
+### 驱动修复历程
+
+| 问题 | 原因 | 修复 |
+|------|------|------|
+| `RmInitAdapter 0x24:0x65:1447` | GSP 固件不兼容 | `NVreg_EnableGpuFirmware=0` + 移除 GSP bin |
+| `RmInitAdapter 0x31:0x40:2640` | BAR 空间不足 | `nvreg_EnableResizableBar=1` |
+| nouveau 抢占 GPU | 开源驱动冲突 | `blacklist nouveau` + `options nouveau modeset=0` |
+| PCIe 速度降级 | BIOS Above 4G Decoding 未开启 | 服务器 BIOS → Enabled |
+
+### 关键配置
+
+```bash
+# /etc/modprobe.d/nvidia-gsp.conf
+options nvidia NVreg_EnableGpuFirmware=0
+options nvidia NVreg_EnableResizableBar=1
+
+# /etc/modprobe.d/blacklist-nouveau.conf
+blacklist nouveau
+options nouveau modeset=0
+
+# GRUB 内核参数
+GRUB_CMDLINE_LINUX_DEFAULT="... pci=realloc pci=assign-busses nvidia.NVreg_EnableGpuFirmware=0 nvidia-drm.modeset=1"
+```
+
+### 性能优化
+
+- **FP16 推理** — RTX 3090 8.6 架构，FP16 比 FP32 快 5x
+- **Full-frame** — tile=0 避免分块开销 (tile128 需 48 次 kernel launch)
+- **Async I/O** — PNG→JPEG 多线程读写，速度 0.82fps → 2.74fps
+- **JPEG 输出** — 超分后输出 JPEG 替代 PNG，IO 快 3x
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| **UI** | 纯 HTML/CSS/JS，无框架 |
+| **后端** | Python 3.11 + Flask |
+| **降噪** | ProPainter (基于 Stable Video Diffusion) |
+| **面部** | CodeFormer (basicsr + facexlib) |
+| **超分** | RealESRGAN / realesrgan-python |
+| **合成** | ffmpeg (libx264 + AAC) |
+| **质量** | numpy (PSNR/SSIM), PIL (对比图) |
+
+---
+
+## 性能数据
+
+| 操作 | 配置 | 速度 | 备注 |
+|------|------|------|------|
+| 超分 | RealESRGAN_x4plus 2x FP16 | ~3 fps | full-frame |
+| 超分 | RealESRGAN_x4plus 2x FP32 | ~0.6 fps | tile=128 |
+| 超分 | realesr-animevideov3 2x FP16 | ~3 fps | 动画视频更快 |
+| 面部增强 | CodeFormer fidelity=0.7 | ~50fps | 子进程隔离 |
+| 降噪 | ProPainter level=1 | ~0.05 fps | 最慢步骤 |
+| **完整管线** | 960×720 → 1920×1440 | 5782MB | 41978帧 |
+
+---
+
+## 已知问题
+
+- **GPU 初始化** — `nvrm` 模块需 `NVreg_EnableGpuFirmware=0`，GSP 固件需移除
+- **RealESRGANer 旧格式** — 4x-UltraSharp / BSRGAN 不支持 `params` key，需用直接加载
+- **CodeFormer 子进程** — basicsr 版本冲突，用独立 conda env + subprocess 隔离
+- **GPU 显存** — 24GB 限制，同时运行 ComfyUI + ProPainter 会 OOM
+
+---
+
+## 未来计划
+
+- [ ] SeedVR2 节点 (ComfyUI) — 更精细的全图超分
+- [ ] Webhook 回调 — 任务完成通知
+- [ ] 多 GPU 队列 — 支持多卡并行
+- [ ] 移动端 App — Flutter 封装
+- [ ] 在线预览 — 处理中实时查看进度

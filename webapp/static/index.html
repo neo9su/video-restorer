@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Restorer</title>
+<style>
+:root {
+  --bg: #0f0f13;
+  --bg2: #16161d;
+  --bg3: #1e1e28;
+  --border: #2a2a38;
+  --accent: #7c6af7;
+  --accent2: #a78bfa;
+  --green: #34d399;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --blue: #60a5fa;
+  --text: #e2e2ef;
+  --text2: #9898b8;
+  --text3: #5a5a7a;
+  --radius: 10px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; font-size: 14px; min-height: 100vh; }
+
+/* Layout */
+.app { display: grid; grid-template-rows: 56px 1fr; min-height: 100vh; }
+.header { background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; position: sticky; top: 0; z-index: 100; }
+.header-logo { font-size: 16px; font-weight: 700; color: var(--accent2); letter-spacing: -0.3px; }
+.header-logo span { color: var(--text2); font-weight: 400; }
+.header-nav { display: flex; gap: 4px; margin-left: auto; }
+.nav-btn { padding: 6px 14px; border-radius: 6px; border: none; background: transparent; color: var(--text2); cursor: pointer; font-size: 13px; transition: all .15s; }
+.nav-btn:hover, .nav-btn.active { background: var(--bg3); color: var(--text); }
+.gpu-badge { margin-left: 8px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+.gpu-badge.ok { background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.2); }
+.gpu-badge.err { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.2); }
+.gpu-badge.unknown { background: rgba(152,152,184,.1); color: var(--text2); border: 1px solid var(--border); }
+
+.main { display: grid; grid-template-columns: 340px 1fr; gap: 0; overflow: hidden; height: calc(100vh - 56px); }
+
+/* Left Panel */
+.left-panel { background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.panel-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.panel-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px; }
+
+/* Upload Zone */
+.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px 16px; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: rgba(124,106,247,.05); }
+.upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-icon { font-size: 28px; margin-bottom: 8px; }
+.upload-text { color: var(--text2); font-size: 13px; }
+.upload-text strong { color: var(--accent2); }
+.upload-hint { color: var(--text3); font-size: 11px; margin-top: 4px; }
+
+/* Upload Queue */
+.upload-queue { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; }
+.queue-item { background: var(--bg3); border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+.queue-thumb { width: 40px; height-min: 28px; height: 28px; object-fit: cover; border-radius: 4px; background: var(--border); flex-shrink: 0; }
+.queue-info { flex: 1; min-width: 0; }
+.queue-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-size { font-size: 11px; color: var(--text3); }
+.queue-remove { color: var(--text3); cursor: pointer; padding: 2px; border-radius: 4px; border: none; background: none; font-size: 14px; flex-shrink: 0; }
+.queue-remove:hover { color: var(--red); }
+
+/* Config */
+.config-grid { display: grid; gap: 10px; }
+.config-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 11px; color: var(--text2); }
+.field select, .field input[type=range], .field input[type=number] {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 6px 10px; font-size: 12px; outline: none;
+  transition: border-color .15s;
+}
+.field select:focus, .field input:focus { border-color: var(--accent); }
+.field input[type=range] { padding: 4px 0; accent-color: var(--accent); cursor: pointer; }
+.range-val { font-size: 11px; color: var(--accent2); text-align: right; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+.toggle-label { font-size: 12px; color: var(--text2); }
+.toggle { position: relative; width: 36px; height: 20px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 20px; cursor: pointer; transition: .2s; }
+.toggle-slider:before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: .2s; }
+.toggle input:checked + .toggle-slider { background: var(--accent); }
+.toggle input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+/* Submit Button */
+.submit-btn { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.submit-btn:hover:not(:disabled) { background: var(--accent2); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(124,106,247,.3); }
+.submit-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+/* Right Panel */
+.right-panel { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+/* Task Card */
+.task-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color .2s; }
+.task-card:hover { border-color: var(--border); }
+.task-card.active { border-color: var(--accent); }
+.task-header { padding: 14px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.task-thumb { width: 56px; height: 36px; object-fit: cover; border-radius: 6px; background: var(--bg3); flex-shrink: 0; }
+.task-meta { flex: 1; min-width: 0; }
+.task-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-info { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.task-status { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-dot.processing { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.completed { background: var(--green); }
+.status-dot.error { background: var(--red); }
+.status-dot.pending { background: var(--text3); }
+.status-text { font-size: 12px; }
+.status-text.processing { color: var(--yellow); }
+.status-text.completed { color: var(--green); }
+.status-text.error { color: var(--red); }
+.status-text.pending { color: var(--text3); }
+
+/* Progress Bar */
+.task-progress { padding: 0 16px 14px; }
+.progress-bar { height: 4px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; transition: width .5s ease; }
+.progress-fill.processing { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+.progress-fill.completed { background: var(--green); }
+.progress-fill.error { background: var(--red); }
+.progress-labels { display: flex; justify-content: space-between; margin-top: 6px; }
+.progress-step { font-size: 11px; color: var(--text3); }
+.progress-pct { font-size: 11px; color: var(--text2); font-weight: 600; }
+
+/* Steps Indicator */
+.task-steps { display: flex; gap: 0; padding: 0 16px 12px; }
+.step-item { flex: 1; text-align: center; position: relative; }
+.step-item:not(:last-child)::after { content: ''; position: absolute; top: 10px; left: 50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
+.step-item.done::after { background: var(--green); }
+.step-item.active::after { background: linear-gradient(90deg, var(--green), var(--border)); }
+.step-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg2); margin: 0 auto 4px; display: flex; align-items: center; justify-content: center; font-size: 9px; position: relative; z-index: 1; }
+.step-item.done .step-dot { background: var(--green); border-color: var(--green); color: white; }
+.step-item.active .step-dot { border-color: var(--accent); background: rgba(124,106,247,.2); color: var(--accent2); animation: pulse 1.5s infinite; }
+.step-label { font-size: 9px; color: var(--text3); line-height: 1.2; }
+.step-item.done .step-label { color: var(--green); }
+.step-item.active .step-label { color: var(--accent2); }
+
+/* Task Detail */
+.task-detail { border-top: 1px solid var(--border); padding: 14px 16px; display: none; }
+.task-card.expanded .task-detail { display: block; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+
+/* Compare Slider */
+.compare-wrap { position: relative; border-radius: 8px; overflow: hidden; background: var(--bg3); aspect-ratio: 16/9; cursor: col-resize; user-select: none; }
+.compare-wrap img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+.compare-after { clip-path: inset(0 50% 0 0); }
+.compare-divider { position: absolute; top: 0; bottom: 0; width: 2px; background: white; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2; }
+.compare-handle { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; background: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #333; box-shadow: var(--shadow); z-index: 3; pointer-events: none; }
+.compare-label { position: absolute; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; }
+.compare-label.before { left: 8px; background: rgba(0,0,0,.6); color: #ccc; }
+.compare-label.after { right: 8px; background: rgba(124,106,247,.8); color: white; }
+.no-preview { width: 100%; aspect-ratio: 16/9; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg3); border-radius: 8px; color: var(--text3); gap: 8px; }
+
+/* Action Buttons */
+.task-actions { display: flex; gap: 8px; }
+.action-btn { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; font-size: 12px; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.action-btn:hover { background: var(--bg3); color: var(--text); }
+.action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.action-btn.primary:hover { background: var(--accent2); }
+.action-btn.danger:hover { background: rgba(248,113,113,.1); border-color: var(--red); color: var(--red); }
+
+/* Log Viewer */
+.log-viewer { background: var(--bg); border-radius: 6px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; color: var(--text2); max-height: 150px; overflow-y: auto; margin-top: 10px; }
+.log-line.info { color: var(--text2); }
+.log-line.warn { color: var(--yellow); }
+.log-line.error { color: var(--red); }
+.log-line.success { color: var(--green); }
+
+/* Empty State */
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); }
+.empty-icon { font-size: 48px; opacity: .5; }
+.empty-text { font-size: 14px; }
+.empty-hint { font-size: 12px; opacity: .7; }
+
+/* Stats Bar */
+.stats-bar { display: flex; gap: 16px; padding: 12px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.stat-item { display: flex; flex-direction: column; gap: 2px; }
+.stat-val { font-size: 18px; font-weight: 700; color: var(--text); }
+.stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* Animations */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.2); border-top-color: white; border-radius: 50%; animation: spin .8s linear infinite; }
+
+/* Mobile */
+@media (max-width: 768px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .left-panel { max-height: 50vh; overflow-y: auto; }
+  .header-nav { display: none; }
+}
+
+/* Tooltip */
+[data-tip] { position: relative; }
+[data-tip]:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1a1a2e; color: var(--text); font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; pointer-events: none; border: 1px solid var(--border); z-index: 999; }
+
+/* Notification */
+.notif { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; display: flex; align-items: center; gap: 10px; box-shadow: var(--shadow); z-index: 1000; animation: slideIn .3s ease; max-width: 320px; }
+.notif.success { border-color: var(--green); }
+.notif.error { border-color: var(--red); }
+@keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* Priority Badge */
+.priority-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+.priority-badge.high { background: rgba(248,113,113,.1); color: var(--red); }
+.priority-badge.normal { background: rgba(96,165,250,.1); color: var(--blue); }
+
+/* Filter Bar */
+.filter-bar { display: flex; gap: 8px; padding: 12px 20px 0; flex-wrap: wrap; }
+.filter-chip { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; font-size: 12px; transition: all .15s; }
+.filter-chip:hover { border-color: var(--accent); color: var(--text); }
+.filter-chip.active { background: rgba(124,106,247,.15); border-color: var(--accent); color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Header -->
+<header class="header">
+  <div class="header-logo">Video<span>Restorer</span></div>
+  <div class="header-nav">
+    <button class="nav-btn active" onclick="switchTab('tasks')">任务</button>
+    <button class="nav-btn" onclick="switchTab('history')">历史</button>
+    <button class="nav-btn" onclick="switchTab('settings')">设置</button>
+  </div>
+  <div id="gpuBadge" class="gpu-badge unknown">
+    <span>●</span> <span id="gpuText">检测中...</span>
+  </div>
+</header>
+
+<div class="main">
+
+<!-- Left Panel -->
+<div class="left-panel">
+  <!-- Upload -->
+  <div class="panel-section">
+    <div class="panel-title">上传视频</div>
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept="video/*" multiple>
+      <div class="upload-icon">🎬</div>
+      <div class="upload-text">拖放视频或 <strong>点击选择</strong></div>
+      <div class="upload-hint">支持 MP4 · MKV · AVI · MOV，最大 2GB</div>
+    </div>
+  </div>
+
+  <!-- Upload Queue -->
+  <div class="panel-section" id="queueSection" style="display:none">
+    <div class="panel-title">待上传 (<span id="queueCount">0</span>)</div>
+    <div class="upload-queue" id="uploadQueue"></div>
+  </div>
+
+  <!-- Config -->
+  <div class="panel-section" style="flex:1; overflow-y:auto">
+    <div class="panel-title">处理配置</div>
+    <div class="config-grid">
+      <div class="config-row">
+        <div class="field">
+          <label>超分模型</label>
+          <select id="cfgModel">
+            <option value="RealESRGAN_x4plus">RealESRGAN x4+</option>
+            <option value="realesr-animevideov3">AnimeVideo v3</option>
+            <option value="RealESRGAN_x2plus">RealESRGAN x2+</option>
+            <option value="4x-UltraSharp">UltraSharp 4x</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>放大倍数</label>
+          <select id="cfgScale">
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>降噪强度 <span class="range-val" id="denoiseVal">中等</span></label>
+        <input type="range" id="cfgDenoise" min="0" max="2" step="1" value="1"
+          oninput="document.getElementById('denoiseVal').textContent=['关闭','中等','强力'][this.value]">
+      </div>
+
+      <div class="field">
+        <label>面部增强保真度 <span class="range-val" id="fidelityVal">0.7</span></label>
+        <input type="range" id="cfgFidelity" min="0" max="1" step="0.1" value="0.7"
+          oninput="document.getElementById('fidelityVal').textContent=parseFloat(this.value).toFixed(1)">
+      </div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">🧑 面部增强 (CodeFormer)</span>
+        <label class="toggle"><input type="checkbox" id="cfgFace" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">🔊 保留音轨</span>
+        <label class="toggle"><input type="checkbox" id="cfgAudio" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">⚡ FP16 加速</span>
+        <label class="toggle"><input type="checkbox" id="cfgFp16" checked><span class="toggle-slider"></span></label>
+      </div>
+
+      <div class="field">
+        <label>任务优先级</label>
+        <select id="cfgPriority">
+          <option value="normal">普通</option>
+          <option value="high">高优先级</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="panel-section">
+    <button class="submit-btn" id="submitBtn" onclick="submitTasks()" disabled>
+      <span>🚀 开始处理</span>
+    </button>
+  </div>
+</div>
+
+<!-- Right Panel -->
+<div class="right-panel" id="rightPanel">
+
+  <!-- Stats -->
+  <div class="stats-bar" id="statsBar" style="margin: -20px -20px 0; border-radius: 0;">
+    <div class="stat-item">
+      <div class="stat-val" id="statTotal">0</div>
+      <div class="stat-label">总任务</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val" style="color:var(--yellow)" id="statRunning">0</div>
+      <div class="stat-label">处理中</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val" style="color:var(--green)" id="statDone">0</div>
+      <div class="stat-label">已完成</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val" style="color:var(--red)" id="statError">0</div>
+      <div class="stat-label">失败</div>
+    </div>
+    <div class="stat-item" style="margin-left:auto">
+      <div class="stat-val" style="font-size:13px;color:var(--text2)" id="statGpu">—</div>
+      <div class="stat-label">GPU 显存</div>
+    </div>
+  </div>
+
+  <!-- Filter -->
+  <div class="filter-bar" id="filterBar">
+    <button class="filter-chip active" onclick="setFilter('all', this)">全部</button>
+    <button class="filter-chip" onclick="setFilter('processing', this)">处理中</button>
+    <button class="filter-chip" onclick="setFilter('completed', this)">已完成</button>
+    <button class="filter-chip" onclick="setFilter('error', this)">失败</button>
+    <button class="filter-chip" onclick="setFilter('pending', this)">排队中</button>
+  </div>
+
+  <!-- Task List -->
+  <div id="taskList" style="display:flex;flex-direction:column;gap:10px"></div>
+
+  <!-- Empty -->
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">🎞️</div>
+    <div class="empty-text">暂无任务</div>
+    <div class="empty-hint">上传视频开始处理</div>
+  </div>
+
+</div>
+</div>
+</div>
+
+<script>
+const API = '';
+let tasks = {};
+let filter = 'all';
+let pendingFiles = [];
+let pollTimer = null;
+let sseSource = null;
+
+// ── Init ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  setupUpload();
+  fetchTasks();
+  checkGPU();
+  startPolling();
+});
+
+// ── GPU Status ──────────────────────────────────────────────
+async function checkGPU() {
+  try {
+    const r = await fetch(API + '/api/gpu');
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const badge = document.getElementById('gpuBadge');
+    const txt = document.getElementById('gpuText');
+    if (d.available) {
+      badge.className = 'gpu-badge ok';
+      const used = d.memory_used || 0, total = d.memory_total || 0;
+      txt.textContent = `GPU ${used}/${total}MB`;
+      document.getElementById('statGpu').textContent = `${used}/${total}MB`;
+    } else {
+      badge.className = 'gpu-badge err';
+      txt.textContent = 'GPU 不可用';
+    }
+  } catch {
+    document.getElementById('gpuBadge').className = 'gpu-badge unknown';
+    document.getElementById('gpuText').textContent = 'GPU 未知';
+  }
+  setTimeout(checkGPU, 10000);
+}
+
+// ── Upload ──────────────────────────────────────────────────
+function setupUpload() {
+  const zone = document.getElementById('uploadZone');
+  const input = document.getElementById('fileInput');
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag');
+    addFiles([...e.dataTransfer.files]);
+  });
+  input.addEventListener('change', () => { addFiles([...input.files]); input.value = ''; });
+}
+
+function addFiles(files) {
+  const valid = files.filter(f => f.type.startsWith('video/') || f.name.match(/\.(mp4|mkv|avi|mov|wmv|flv|m4v)$/i));
+  if (!valid.length) { showNotif('请选择视频文件', 'error'); return; }
+  valid.forEach(f => { if (!pendingFiles.find(p => p.name === f.name)) pendingFiles.push(f); });
+  renderQueue();
+}
+
+function renderQueue() {
+  const section = document.getElementById('queueSection');
+  const queue = document.getElementById('uploadQueue');
+  const btn = document.getElementById('submitBtn');
+  document.getElementById('queueCount').textContent = pendingFiles.length;
+
+  if (!pendingFiles.length) { section.style.display = 'none'; btn.disabled = true; return; }
+  section.style.display = 'block'; btn.disabled = false;
+  queue.innerHTML = pendingFiles.map((f, i) => `
+    <div class="queue-item">
+      <div class="queue-thumb" style="display:flex;align-items:center;justify-content:center;font-size:18px">🎬</div>
+      <div class="queue-info">
+        <div class="queue-name">${f.name}</div>
+        <div class="queue-size">${formatSize(f.size)}</div>
+      </div>
+      <button class="queue-remove" onclick="removeFile(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeFile(i) { pendingFiles.splice(i, 1); renderQueue(); }
+
+async function submitTasks() {
+  if (!pendingFiles.length) return;
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> 上传中...';
+
+  const config = getConfig();
+  let success = 0, fail = 0;
+
+  for (const file of pendingFiles) {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('config', JSON.stringify(config));
+      const r = await fetch(API + '/upload', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      success++;
+    } catch (e) {
+      fail++;
+      showNotif(`${file.name} 上传失败: ${e.message}`, 'error');
+    }
+  }
+
+  pendingFiles = [];
+  renderQueue();
+  btn.innerHTML = '<span>🚀 开始处理</span>';
+  if (success) showNotif(`${success} 个任务已提交`, 'success');
+  fetchTasks();
+}
+
+function getConfig() {
+  return {
+    model: document.getElementById('cfgModel').value,
+    scale: parseInt(document.getElementById('cfgScale').value),
+    denoise: parseInt(document.getElementById('cfgDenoise').value),
+    face_enhancement: { enabled: document.getElementById('cfgFace').checked, fidelity_weight: parseFloat(document.getElementById('cfgFidelity').value) },
+    keep_audio: document.getElementById('cfgAudio').checked,
+    use_fp16: document.getElementById('cfgFp16').checked,
+    priority: document.getElementById('cfgPriority').value,
+  };
+}
+
+// ── Tasks ───────────────────────────────────────────────────
+async function fetchTasks() {
+  try {
+    const r = await fetch(API + '/api/tasks');
+    if (!r.ok) return;
+    const data = await r.json();
+    tasks = data;
+    renderTasks();
+    updateStats();
+  } catch {}
+}
+
+function startPolling() {
+  pollTimer = setInterval(() => {
+    const hasActive = Object.values(tasks).some(t => t.status === 'processing');
+    fetchTasks();
+    if (hasActive) checkGPU();
+  }, hasActive => hasActive ? 2000 : 5000);
+  // simpler: always poll
+  clearInterval(pollTimer);
+  pollTimer = setInterval(fetchTasks, 3000);
+}
+
+function setFilter(f, el) {
+  filter = f;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderTasks();
+}
+
+function renderTasks() {
+  const list = document.getElementById('taskList');
+  const empty = document.getElementById('emptyState');
+  let items = Object.entries(tasks).map(([id, t]) => ({id, ...t}));
+
+  // Filter
+  if (filter !== 'all') items = items.filter(t => t.status === filter);
+  // Sort: processing first, then pending, then completed, error last
+  const order = { processing: 0, pending: 1, completed: 2, error: 3 };
+  items.sort((a, b) => (order[a.status]||9) - (order[b.status]||9) || (b.created_at||0) - (a.created_at||0));
+
+  if (!items.length) {
+    list.innerHTML = '';
+    empty.style.display = 'flex';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Preserve expanded state
+  const expanded = new Set([...document.querySelectorAll('.task-card.expanded')].map(el => el.dataset.id));
+
+  list.innerHTML = items.map(t => taskCardHTML(t, expanded.has(t.id))).join('');
+
+  // Attach compare sliders
+  items.forEach(t => {
+    const wrap = document.getElementById('compare-' + t.id);
+    if (wrap) setupCompare(wrap);
+  });
+}
+
+const STEPS = [
+  { key: 1, label: '抽帧' },
+  { key: 2, label: '降噪' },
+  { key: 3, label: '人脸增强' },
+  { key: 4, label: '超分' },
+  { key: 5, label: '合成' },
+];
+
+function taskCardHTML(t, expanded) {
+  const pct = t.percent || (t.status === 'completed' ? 100 : 0);
+  const step = t.step || 0;
+  const stepsHTML = STEPS.map(s => {
+    let cls = '';
+    if (s.key < step || t.status === 'completed') cls = 'done';
+    else if (s.key === step && t.status === 'processing') cls = 'active';
+    const icon = s.key < step || t.status === 'completed' ? '✓' : s.key === step ? '●' : s.key;
+    return `<div class="step-item ${cls}"><div class="step-dot">${icon}</div><div class="step-label">${s.label}</div></div>`;
+  }).join('');
+
+  const hasBefore = t.input_preview;
+  const hasAfter = t.output_preview;
+  const compareHTML = (hasBefore && hasAfter) ? `
+    <div class="compare-wrap" id="compare-${t.id}">
+      <img class="compare-before" src="${API}/api/preview/${t.id}/input?t=${Date.now()}" onerror="this.style.display='none'">
+      <img class="compare-after" src="${API}/api/preview/${t.id}/output?t=${Date.now()}" onerror="this.style.display='none'">
+      <div class="compare-divider"></div>
+      <div class="compare-handle">⇔</div>
+      <div class="compare-label before">原始</div>
+      <div class="compare-label after">修复</div>
+    </div>` : `<div class="no-preview"><span style="font-size:32px">🎞️</span><span>暂无预览</span></div>`;
+
+  const etaText = t.eta_seconds ? `剩余 ${formatETA(t.eta_seconds)}` : '';
+  const sizeText = t.output_size ? `输出 ${formatSize(t.output_size)}` : '';
+  const fpsText = t.fps ? `${t.fps.toFixed(1)} fps` : '';
+  const infoText = [etaText, fpsText, sizeText].filter(Boolean).join(' · ');
+
+  const logLines = (t.recent_logs || []).map(l => {
+    const cls = l.includes('ERROR') ? 'error' : l.includes('WARN') ? 'warn' : l.includes('OK') || l.includes('Done') ? 'success' : 'info';
+    return `<div class="log-line ${cls}">${escHtml(l)}</div>`;
+  }).join('');
+
+  const priorityBadge = t.priority === 'high' ? '<span class="priority-badge high">高优</span>' : '';
+
+  return `
+  <div class="task-card ${t.status === 'processing' ? 'active' : ''} ${expanded ? 'expanded' : ''}" data-id="${t.id}">
+    <div class="task-header" onclick="toggleCard('${t.id}')">
+      <div class="queue-thumb" style="display:flex;align-items:center;justify-content:center;font-size:20px">🎬</div>
+      <div class="task-meta">
+        <div class="task-name">${escHtml(t.filename || t.id)} ${priorityBadge}</div>
+        <div class="task-info">${escHtml(infoText || t.id.slice(0,8))}</div>
+      </div>
+      <div class="task-status">
+        <div class="status-dot ${t.status}"></div>
+        <div class="status-text ${t.status}">${statusLabel(t.status)}</div>
+      </div>
+    </div>
+
+    ${t.status !== 'pending' ? `
+    <div class="task-progress">
+      <div class="progress-bar"><div class="progress-fill ${t.status}" style="width:${pct}%"></div></div>
+      <div class="progress-labels">
+        <span class="progress-step">${stepLabel(t.step, t.status)}</span>
+        <span class="progress-pct">${pct}%</span>
+      </div>
+    </div>
+    <div class="task-steps">${stepsHTML}</div>
+    ` : ''}
+
+    <div class="task-detail">
+      <div style="margin-bottom:12px">${compareHTML}</div>
+      <div class="task-actions">
+        ${t.status === 'completed' ? `<button class="action-btn primary" onclick="downloadResult('${t.id}')">⬇ 下载</button>` : ''}
+        ${t.status === 'error' ? `<button class="action-btn primary" onclick="retryTask('${t.id}')">🔄 重试</button>` : ''}
+        ${t.status === 'processing' ? `<button class="action-btn danger" onclick="cancelTask('${t.id}')">⏹ 取消</button>` : ''}
+        <button class="action-btn" onclick="copyId('${t.id}')" data-tip="复制任务ID">📋 ID</button>
+        <button class="action-btn danger" onclick="deleteTask('${t.id}')">🗑 删除</button>
+      </div>
+      ${logLines ? `<div class="log-viewer">${logLines}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function toggleCard(id) {
+  const card = document.querySelector(`.task-card[data-id="${id}"]`);
+  if (card) card.classList.toggle('expanded');
+}
+
+function setupCompare(wrap) {
+  let dragging = false;
+  const move = e => {
+    if (!dragging) return;
+    const rect = wrap.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, ((e.clientX || e.touches?.[0]?.clientX || 0) - rect.left) / rect.width));
+    const pct = (x * 100).toFixed(1);
+    wrap.querySelector('.compare-after').style.clipPath = `inset(0 ${(100-x*100).toFixed(1)}% 0 0)`;
+    wrap.querySelector('.compare-divider').style.left = pct + '%';
+    wrap.querySelector('.compare-handle').style.left = pct + '%';
+  };
+  wrap.addEventListener('mousedown', () => dragging = true);
+  wrap.addEventListener('touchstart', () => dragging = true);
+  document.addEventListener('mouseup', () => dragging = false);
+  document.addEventListener('touchend', () => dragging = false);
+  document.addEventListener('mousemove', move);
+  document.addEventListener('touchmove', move);
+}
+
+// ── Task Actions ────────────────────────────────────────────
+async function downloadResult(id) {
+  window.open(API + '/download/' + id, '_blank');
+}
+
+async function retryTask(id) {
+  try {
+    await fetch(API + '/api/tasks/' + id + '/retry', { method: 'POST' });
+    showNotif('已重新提交任务', 'success');
+    fetchTasks();
+  } catch { showNotif('重试失败', 'error'); }
+}
+
+async function cancelTask(id) {
+  try {
+    await fetch(API + '/api/tasks/' + id + '/cancel', { method: 'POST' });
+    showNotif('任务已取消', 'success');
+    fetchTasks();
+  } catch { showNotif('取消失败', 'error'); }
+}
+
+async function deleteTask(id) {
+  if (!confirm('确认删除任务？')) return;
+  try {
+    await fetch(API + '/api/tasks/' + id, { method: 'DELETE' });
+    showNotif('已删除', 'success');
+    delete tasks[id];
+    renderTasks();
+    updateStats();
+  } catch { showNotif('删除失败', 'error'); }
+}
+
+function copyId(id) {
+  navigator.clipboard.writeText(id).then(() => showNotif('已复制任务ID', 'success'));
+}
+
+// ── Stats ───────────────────────────────────────────────────
+function updateStats() {
+  const vals = Object.values(tasks);
+  document.getElementById('statTotal').textContent = vals.length;
+  document.getElementById('statRunning').textContent = vals.filter(t => t.status === 'processing').length;
+  document.getElementById('statDone').textContent = vals.filter(t => t.status === 'completed').length;
+  document.getElementById('statError').textContent = vals.filter(t => t.status === 'error').length;
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+function statusLabel(s) { return { processing:'处理中', completed:'已完成', error:'失败', pending:'排队中', cancelled:'已取消' }[s] || s; }
+function stepLabel(step, status) {
+  if (status === 'completed') return '处理完成';
+  if (status === 'error') return '处理失败';
+  const labels = { 1:'抽帧中...', 2:'降噪中...', 3:'面部增强中...', 4:'超分辨率中...', 5:'合成视频中...' };
+  return labels[step] || '等待中...';
+}
+function formatSize(b) {
+  if (!b) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1024**3) return (b/1024/1024).toFixed(1) + ' MB';
+  return (b/1024**3).toFixed(2) + ' GB';
+}
+function formatETA(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h' + Math.floor((s%3600)/60) + 'm';
+}
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function switchTab(t) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+let notifTimer = null;
+function showNotif(msg, type='info') {
+  const old = document.querySelector('.notif');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className = `notif ${type}`;
+  el.innerHTML = `<span>${type==='success'?'✅':type==='error'?'❌':'ℹ️'}</span><span>${escHtml(msg)}</span>`;
+  document.body.appendChild(el);
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.remove(), 3500);
+}
+</script>
+</body>
+</html>

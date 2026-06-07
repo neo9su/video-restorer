@@ -20,7 +20,11 @@ def frames_to_video(
 ) -> bool:
     """将帧序列合成为视频"""
     ensure_dir(os.path.dirname(output_path))
-    pattern = os.path.join(frame_dir, "%08d.png")
+    # 自动检测帧格式 jpg/png
+    import glob as _glob
+    _jpgs = _glob.glob(os.path.join(frame_dir, '*.jpg'))
+    _ext = 'jpg' if _jpgs else 'png'
+    pattern = os.path.join(frame_dir, '%08d.' + _ext)
 
     logger.info(f"组装视频: {frame_dir} -> {output_path}")
     cmd = [
@@ -34,6 +38,7 @@ def frames_to_video(
     if bitrate:
         cmd += ["-b:v", bitrate]
     cmd += ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"]  # 确保偶数宽高
+    cmd += ["-movflags", "+faststart"]  # moov at head
     cmd += [output_path]
 
     return run_ffmpeg(cmd, desc="帧序列合成视频")

@@ -33,10 +33,16 @@ def run_ffmpeg(cmd: list, desc: str = "") -> bool:
     """执行 FFmpeg 命令"""
     logger.info(f"FFmpeg: {desc or ' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # 注意: 不使用 capture_output=True，避免 pipe buffer 死锁
+        # FFmpeg 大量 stderr 进度输出会填满 64KB pipe，导致进程挂起
+        result = subprocess.run(
+            cmd, check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg 失败: {e.stderr[:500]}")
+        logger.error(f"FFmpeg 失败 (exit={e.returncode})")
         return False
 
 
