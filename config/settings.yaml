@@ -14,6 +14,8 @@ extract_frames:
 face_enhancement:
   enabled: true
   fidelity_weight: 0.7
+  fullbody: false
+  fullbody_fidelity: 0.9
   log_interval: 50
   only_center_face: false
 io:
