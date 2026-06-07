@@ -454,6 +454,21 @@ def stream_task(tid):
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 # Stats
+@app.route('/api/tasks/stream/all')
+def stream_all_tasks():
+    def generate():
+        last = None
+        for _ in range(1800):
+            tasks = load_tasks()
+            if tasks != last:
+                yield f"data: {json.dumps({'tasks': tasks})}\n\n"
+                last = tasks
+            time.sleep(1)
+    return Response(stream_with_context(generate()),
+                    mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 @app.route('/api/stats')
 def api_stats():
     tasks = load_tasks()

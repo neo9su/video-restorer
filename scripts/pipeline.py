@@ -57,6 +57,23 @@ def denoise_frames(input_dir: Path, output_dir: Path, config: dict) -> Path:
     return Path(result) if result else output_dir
 
 
+def watermark_removal_frames(input_dir, output_dir, config):
+    """Step 1.5: 去水印"""
+    from remove_watermark import run_pipeline as wm_pipeline
+    wm = config.get("watermark_removal", {})
+    if not wm.get("enabled", False):
+        logger.info("  [Step 1.5] Watermark removal disabled")
+        return input_dir
+    output_dir = ensure_dir(output_dir)
+    existing = sum(len(list(output_dir.glob(f"*.{e}"))) for e in ("jpg", "jpeg", "png"))
+    total_in = sum(len(list(input_dir.glob(f"*.{e}"))) for e in ("jpg", "jpeg", "png"))
+    if existing >= total_in:
+        logger.info(f"  [Step 1.5] Skip: {existing}/{total_in} already done")
+        return output_dir
+    result = wm_pipeline(str(input_dir), config, str(output_dir))
+    return Path(result) if result else output_dir
+
+
 def face_enhance_frames(input_dir: Path, output_dir: Path, config: dict) -> Path:
     """Step 3: 面部增强 (CodeFormer)"""
     fe = config.get('face_enhancement', {})
@@ -230,16 +247,27 @@ def run_pipeline(input_path: str, output_dir: str, config: dict,
     else:
         logger.info("[Step 1] Skip (checkpoint or config)")
 
+    # ── Step 1.5: Watermark Removal ──────────────────────────
+    frames_nwm = work_dir / 'frames_nowatermark'
+    if 15 not in completed_steps and 15 not in skip_steps:
+        logger.info("[Step 1.5] Watermark removal...")
+        frames_nwm = watermark_removal_frames(frames_raw, frames_nwm, config)
+        mark_step(15)
+    else:
+        logger.info("[Step 1.5] Skip")
+        if not frames_nwm.exists():
+            frames_nwm = frames_raw
+
     # ── Step 2: Denoise ──────────────────────────────────────
     frames_denoised = work_dir / 'frames_denoised'
     if 2 not in completed_steps and 2 not in skip_steps:
         logger.info("[Step 2] Denoising...")
-        frames_denoised = denoise_frames(frames_raw, frames_denoised, config)
+        frames_denoised = denoise_frames(frames_nwm, frames_denoised, config)
         mark_step(2)
     else:
         logger.info("[Step 2] Skip")
         if not frames_denoised.exists():
-            frames_denoised = frames_raw
+            frames_denoised = frames_nwm
 
     # ── Step 3: Face Enhancement ─────────────────────────────
     frames_face = work_dir / 'frames_face_enhanced'

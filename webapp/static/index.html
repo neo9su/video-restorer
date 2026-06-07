@@ -392,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupUpload();
   fetchTasks();
   checkGPU();
-  startPolling();
+  startSSE();
 });
 
 // ── GPU Status ──────────────────────────────────────────────
@@ -515,15 +515,33 @@ async function fetchTasks() {
   } catch {}
 }
 
-function startPolling() {
-  pollTimer = setInterval(() => {
-    const hasActive = Object.values(tasks).some(t => t.status === 'processing');
-    fetchTasks();
-    if (hasActive) checkGPU();
-  }, hasActive => hasActive ? 2000 : 5000);
-  // simpler: always poll
-  clearInterval(pollTimer);
-  pollTimer = setInterval(fetchTasks, 3000);
+function startSSE() {
+  const url = API + '/api/tasks/stream/all';
+  if (sseSource) sseSource.close();
+  sseSource = new EventSource(url);
+  sseSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.tasks) {
+        tasks = data.tasks;
+        renderTasks();
+        updateStats();
+      }
+    } catch {}
+  };
+  sseSource.onerror = () => {
+    if (!pollTimer) pollTimer = setInterval(fetchTasks, 5000);
+  };
+}
+async function fetchTasks() {
+  try {
+    const r = await fetch(API + '/api/tasks');
+    if (!r.ok) return;
+    const data = await r.json();
+    tasks = data;
+    renderTasks();
+    updateStats();
+  } catch {}
 }
 
 function setFilter(f, el) {
