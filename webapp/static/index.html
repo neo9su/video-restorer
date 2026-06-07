@@ -331,6 +331,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-s
 
 <!-- Right Panel -->
 <div class="right-panel" id="rightPanel">
+<div id="tasksContent">
 
   <!-- Stats -->
   <div class="stats-bar" id="statsBar" style="margin: -20px -20px 0; border-radius: 0;">
@@ -756,6 +757,11 @@ function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&
 function switchTab(t) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
+  document.getElementById('tasksContent').style.display = t === 'tasks' ? '' : 'none';
+  document.getElementById('historyContent').style.display = t === 'history' ? '' : 'none';
+  document.getElementById('settingsContent').style.display = t === 'settings' ? '' : 'none';
+  if (t === 'history') renderHistory();
+  if (t === 'settings') loadSettings();
 }
 
 let notifTimer = null;
@@ -768,6 +774,161 @@ function showNotif(msg, type='info') {
   document.body.appendChild(el);
   clearTimeout(notifTimer);
   notifTimer = setTimeout(() => el.remove(), 3500);
+}
+
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  const empty = document.getElementById('historyEmpty');
+  const val = Object.values(tasks);
+  const term = (document.getElementById('histSearch')?.value || '').toLowerCase();
+
+  document.getElementById('histTotal').textContent = val.length;
+  document.getElementById('histCompleted').textContent = val.filter(t => t.status === 'completed').length;
+  document.getElementById('histFailed').textContent = val.filter(t => t.status === 'error').length;
+
+  let items = val.filter(t => {
+    if (term && !(t.filename || '').toLowerCase().includes(term)) return false;
+    return ['completed', 'error', 'cancelled'].includes(t.status);
+  }).sort((a, b) => (b.completed_at || b.created_at || 0) - (a.completed_at || a.created_at || 0));
+
+  if (!items.length) { list.innerHTML = ''; empty.style.display = 'flex'; return; }
+  empty.style.display = 'none';
+
+  list.innerHTML = items.map(t => {
+    const size = t.output_size || 0;
+    const date = new Date((t.completed_at || t.created_at || 0) * 1000).toLocaleString();
+    const statusIcon = t.status === 'completed' ? '✅' : t.status === 'error' ? '❌' : '⏹️';
+    return `<div class="task-card" style="cursor:default">
+      <div class="task-header" style="cursor:default">
+        <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:6px;background:var(--bg3);flex-shrink:0;font-size:18px">${statusIcon}</div>
+        <div class="task-meta">
+          <div class="task-name">${escHtml(t.filename || t.id).slice(0,40)}</div>
+          <div class="task-info">${date} ${size ? '· ' + formatSize(size) : ''}</div>
+        </div>
+        <div class="task-actions" style="flex-shrink:0">
+          ${t.status === 'completed' && t.result_path ? `<button class="action-btn primary" onclick="downloadResult('${t.id}')">⬇ 下载</button>` : ''}
+          ${t.status === 'error' ? `<button class="action-btn" onclick="retryTask('${t.id}')">🔄 重试</button>` : ''}
+          <button class="action-btn danger" onclick="deleteTask('${t.id}')">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Search on input
+document.addEventListener('DOMContentLoaded', () => {
+  const search = document.getElementById('histSearch');
+  if (search) search.addEventListener('input', renderHistory);
+});
+
+async function loadSettings() {
+  const form = document.getElementById('settingsForm');
+  try {
+    const r = await fetch(API + '/api/config');
+    if (!r.ok) throw new Error();
+    const cfg = await r.json();
+    form.innerHTML = buildSettingsForm(cfg);
+  } catch {
+    form.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">加载失败</div></div>';
+  }
+}
+
+function buildSettingsForm(cfg) {
+  const sr = cfg.super_resolution || {};
+  const fe = cfg.face_enhancement || {};
+  const be = cfg.body_enhancement || {};
+  const wm = cfg.watermark_removal || {};
+  const pp = cfg.postprocess || {};
+
+  return '<div class="config-grid" style="padding:4px 0">' +
+    '<div class="panel-title" style="margin:8px 0 4px">超分辨率</div>' +
+    '<div class="config-row">' +
+      field('模型', 'select', 'srModel', sr.model, ['RealESRGAN_x4plus','realesr-animevideov3','RealESRGAN_x2plus','4x-UltraSharp']) +
+      field('放大', 'select', 'srScale', sr.scale || 2, [2,4]) +
+    '</div>' +
+    '<div class="toggle-row"><span class="toggle-label">⚡ FP16 加速</span>' +
+      toggle('srFp16', sr.use_fp16 !== false) + '</div>' +
+
+    '<div class="panel-title" style="margin:8px 0 4px">面部增强</div>' +
+    '<div class="toggle-row"><span class="toggle-label">🧑 CodeFormer 面部增强</span>' +
+      toggle('feEnabled', fe.enabled !== false) + '</div>' +
+    '<div class="field"><label>保真度 <span class="range-val">' + (fe.fidelity_weight || 0.7) + '</span></label>' +
+      '<input type="range" id="feFidelity" min="0" max="1" step="0.1" value="' + (fe.fidelity_weight || 0.7) + '" oninput="this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)"><span class="range-val"></span></div>' +
+
+    '<div class="panel-title" style="margin:8px 0 4px">全身细节增强</div>' +
+    '<div class="toggle-row"><span class="toggle-label">🦵 身体细节 (皮肤/躯干)</span>' +
+      toggle('beEnabled', be.enabled !== false) + '</div>' +
+    '<div class="field"><label>强度</label>' +
+      '<select id="beStrength"><option value="0.5">弱</option><option value="1.0" ' + (be.strength==1?'selected':'') + '>中等</option><option value="1.5" ' + (be.strength==1.5?'selected':'') + '>强力</option><option value="2.0" ' + (be.strength==2?'selected':'') + '>最大</option></select></div>' +
+
+    '<div class="panel-title" style="margin:8px 0 4px">去水印</div>' +
+    '<div class="toggle-row"><span class="toggle-label">🔍 去除水印</span>' +
+      toggle('wmEnabled', wm.enabled === true) + '</div>' +
+
+    '<div class="panel-title" style="margin:8px 0 4px">合成</div>' +
+    '<div class="config-row">' +
+      field('CRF (质量)', 'number', 'ppCrf', pp.output_crf || 18) +
+      field('编码', 'select', 'ppCodec', pp.output_codec || 'h264', ['h264','libx265']) +
+    '</div>' +
+    '<div class="toggle-row"><span class="toggle-label">🔊 保留音轨</span>' +
+      toggle('keepAudio', true) + '</div>' +
+  '</div>';
+}
+
+function field(label, type, id, val, options) {
+  let input;
+  if (type === 'select' && options) {
+    input = '<select id="' + id + '">' + options.map(o => '<option value="' + o + '"' + (val==o?' selected':'') + '>' + o + '</option>').join('') + '</select>';
+  } else if (type === 'number') {
+    input = '<input type="number" id="' + id + '" value="' + val + '" min="0" max="51">';
+  }
+  return '<div class="field"><label>' + label + '</label>' + input + '</div>';
+}
+
+function toggle(id, checked) {
+  return '<label class="toggle"><input type="checkbox" id="' + id + '"' + (checked?' checked':'') + '><span class="toggle-slider"></span></label>';
+}
+
+async function saveSettings() {
+  const loadBtn = document.querySelector('#settingsContent .action-btn.primary');
+  loadBtn.innerHTML = '⏳ 保存中...';
+  loadBtn.disabled = true;
+  try {
+    const cfg = {
+      super_resolution: {
+        model: document.getElementById('srModel').value,
+        scale: parseInt(document.getElementById('srScale').value),
+        use_fp16: document.getElementById('srFp16').checked,
+      },
+      face_enhancement: {
+        enabled: document.getElementById('feEnabled').checked,
+        fidelity_weight: parseFloat(document.getElementById('feFidelity').value),
+      },
+      body_enhancement: {
+        enabled: document.getElementById('beEnabled').checked,
+        strength: parseFloat(document.getElementById('beStrength').value),
+      },
+      watermark_removal: {
+        enabled: document.getElementById('wmEnabled').checked,
+      },
+      postprocess: {
+        output_crf: parseInt(document.getElementById('ppCrf').value),
+        output_codec: document.getElementById('ppCodec').value,
+      },
+      keep_audio: document.getElementById('keepAudio').checked,
+    };
+    const r = await fetch(API + '/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(cfg),
+    });
+    if (!r.ok) throw new Error();
+    showNotif('配置已保存 ✅', 'success');
+  } catch {
+    showNotif('保存失败', 'error');
+  }
+  loadBtn.innerHTML = '💾 保存';
+  loadBtn.disabled = false;
 }
 </script>
 </body>
